@@ -34,26 +34,58 @@ int main() {
 
                 dpp::snowflake authorId = event.message_author_id;
                 dpp::snowflake messageId = event.message_id;
-                dpp::snowflake channel_id = event.channel_id;
+                dpp::snowflake channelId = event.channel_id;
                 dpp::guild &guild = *(event.reacting_guild);
 
+                dpp::guild_member author = guild.members.at(authorId);
 
-                std::string authorNickname = guild.members.at(authorId).get_nickname();
                 std::promise<dpp::message> messagePromise; 
+                std::promise<dpp::channel> channelPromise;
                 
-                bot.message_get(messageId, channel_id, [&bot, &messagePromise](const dpp::confirmation_callback_t &callback) {
+                bot.message_get(messageId, channelId, [&bot, &messagePromise](const dpp::confirmation_callback_t &callback) {
                         if (callback.is_error()) {
                                 std::cout << callback.get_error().human_readable;
                         }
 
                         dpp::message msg = std::get<dpp::message>(callback.value);
-                        std::cout << msg.content;
                         messagePromise.set_value(msg);
                 });
+
+                bot.channel_get(channelId, [&bot, &channelPromise](const dpp::confirmation_callback_t &callback) {
+                        if (callback.is_error()) {
+                                std::cout << callback.get_error().human_readable;
+                        }
+
+                        dpp::channel channel = std::get<dpp::channel>(callback.value);
+                        channelPromise.set_value(channel);
+                });
                
-                std::string messageContent = messagePromise.get_future().get().content;
-                dpp::message msg = dpp::message(HEART_CHANNEL_ID, messageContent);
-                bot.message_create(msg);
+                dpp::message originalMessage = messagePromise.get_future().get();
+                dpp::channel channel = channelPromise.get_future().get();
+
+                int reactionCount = 0;
+                for (dpp::reaction reaction : originalMessage.reactions) {
+                        if (reaction.emoji_id == reactingEmoji.id) {
+                                reactionCount = reaction.count;
+                                break;
+                        }
+                }
+
+                dpp::embed_footer footer;
+                footer.set_text("This message was sent on");
+                
+                dpp::embed embed = dpp::embed()
+                        .set_author(author.get_nickname(), "", author.get_avatar_url())
+                        .set_title(std::to_string(reactionCount) + " :purple_heart:'s")
+                        .set_description(originalMessage.content)
+                        .set_timestamp(originalMessage.get_creation_time())
+                        .set_footer(footer)
+                        .add_field("from", author.get_mention(), true)
+                        .add_field("in", channel.get_mention(), true)
+                        .set_colour(11177686);
+
+                dpp::message response = dpp::message(HEART_CHANNEL_ID, embed);
+                bot.message_create(response);
         });
 
         bot.on_ready([&bot](const dpp::ready_t &ready) {
